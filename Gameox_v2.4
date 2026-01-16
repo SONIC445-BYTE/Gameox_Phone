@@ -3,18 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neuro-Motor Hub Mobile</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <title>Neuro-Motor Hub Mobile (Patched)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1632432244/camera_utils.js"></script>
 
     <style>
         body { margin: 0; background: #000; color: #00ff00; font-family: 'Courier New', monospace; overflow: hidden; touch-action: none; }
         #container { position: relative; width: 100vw; height: 100vh; display: flex; flex-direction: column; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 5; }
-        video { display: none; }
-        #ui-top { position: absolute; top: 20px; width: 100%; text-align: center; z-index: 10; font-weight: bold; font-size: 14px; text-shadow: 2px 2px #000; }
-        .overlay-txt { position: absolute; width: 80%; left: 10%; text-align: center; z-index: 10; background: rgba(0,0,0,0.7); border: 1px solid #0f0; padding: 10px; }
+        video { display: none; } /* Hidden video element */
+        
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
+        #ui-top { position: absolute; top: 20px; width: 100%; text-align: center; font-weight: bold; font-size: 14px; text-shadow: 2px 2px #000; pointer-events: auto;}
+        
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 50;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        button {
+            background: #00ff00; color: #000; border: none; padding: 15px 30px;
+            font-family: 'Courier New', monospace; font-size: 20px; font-weight: bold;
+            cursor: pointer; margin-top: 20px;
+        }
+        #debug-log {
+            position: absolute; bottom: 10px; left: 10px; font-size: 10px; color: #555;
+            z-index: 100; max-width: 80%;
+        }
     </style>
 </head>
 <body>
@@ -22,22 +38,41 @@
 <div id="container">
     <video id="input_video" playsinline></video>
     <canvas id="gameCanvas"></canvas>
-    <div id="ui-top">NEURO-LINK STATUS: <span id="status">INIT</span></div>
+    
+    <div id="ui-layer">
+        <div id="ui-top">NEURO-LINK STATUS: <span id="status">OFFLINE</span></div>
+    </div>
+
+    <div id="start-screen">
+        <h1>NEURO-MOTOR HUB</h1>
+        <p>Camera Access Required</p>
+        <button id="start-btn">INITIALIZE SYSTEM</button>
+    </div>
+
+    <div id="debug-log">Log: System Ready.</div>
 </div>
 
 <script>
-/** * --- CONFIG & ENGINE ---
+/** * --- CONFIG & UTILS ---
  */
 const videoElement = document.getElementById('input_video');
 const canvasElement = document.getElementById('gameCanvas');
 const ctx = canvasElement.getContext('2d');
 const statusEl = document.getElementById('status');
+const debugEl = document.getElementById('debug-log');
+const startScreen = document.getElementById('start-screen');
 
-let gameState = "BOOT"; // BOOT, CALIBRATE, PLAYING, GAMEOVER
+function log(msg) { debugEl.innerText = "Log: " + msg; }
+
+let gameState = "IDLE"; // IDLE, BOOT, CALIBRATE, PLAYING, GAMEOVER
 let score = 0, lives = 3, bootTimer = 0, romProgress = 0;
-let handX = 0, handY = 0, pinching = false, eyeClosed = false;
+let handX = 0, handY = 0, pinching = false;
+let eyeClosed = false, currentEyeDist = 0; // Added for debug
 let enemies = [], bullets = [], tremorData = [], reactionTimes = [];
-let lastShotTime = 0, spawnCounter = 0;
+let lastShotTime = 0;
+
+// Audio Context (Created but suspended until interaction)
+let audioCtx;
 
 function resize() {
     canvasElement.width = window.innerWidth;
@@ -46,9 +81,12 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Audio Setup
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function initAudio() {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
 function playSfx(freqStart, freqEnd, duration) {
+    if (!audioCtx) return;
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.frequency.setValueAtTime(freqStart, audioCtx.currentTime);
@@ -61,17 +99,20 @@ function playSfx(freqStart, freqEnd, duration) {
 
 /** * --- MEDIAPIPE AI MODELS ---
  */
-const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
-hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6 });
+// Using specific CDN paths helps reliability
+const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}` });
+hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.5 }); // Lowered confidence slightly for speed
 
-const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
-faceMesh.setOptions({ refineLandmarks: true, minDetectionConfidence: 0.6 });
+const faceMesh = new FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}` });
+faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5 });
 
-// Hand Processing Logic
+// Hand Logic
 hands.onResults((results) => {
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
         statusEl.innerText = "HAND LOCKED";
         const lm = results.multiHandLandmarks[0];
+        
+        // Mirror effect fix: (1 - x)
         const targetX = (1 - lm[8].x) * canvasElement.width;
         const targetY = lm[8].y * canvasElement.height;
 
@@ -79,7 +120,7 @@ hands.onResults((results) => {
         handX += (targetX - handX) * 0.4;
         handY += (targetY - handY) * 0.4;
 
-        // Pinch Calculation (8 = Index Tip, 4 = Thumb Tip)
+        // Pinch Calculation
         const dist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
         pinching = dist < 0.06;
 
@@ -87,31 +128,58 @@ hands.onResults((results) => {
             tremorData.push(Math.abs(targetX - handX) + Math.abs(targetY - handY));
             if (tremorData.length > 60) tremorData.shift();
         }
-    } else { statusEl.innerText = "SEARCHING..."; }
-});
-
-// Face Processing Logic (Blink Detection)
-faceMesh.onResults((results) => {
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const lm = results.multiFaceLandmarks[0];
-        // Simplified Eye Aspect Ratio
-        const top = lm[159], bottom = lm[145];
-        const eyeDist = Math.hypot(top.x - bottom.x, top.y - bottom.y);
-        eyeClosed = eyeDist < 0.012;
+    } else { 
+        statusEl.innerText = "SEARCHING HAND..."; 
     }
 });
 
-const camera = new Camera(videoElement, {
-    onFrame: async () => {
-        await hands.send({image: videoElement});
-        if (gameState === "BOOT" || gameState === "CALIBRATE") await faceMesh.send({image: videoElement});
-    },
-    width: 480, height: 640
+// Face Logic
+faceMesh.onResults((results) => {
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const lm = results.multiFaceLandmarks[0];
+        // Left eye indices: Top 159, Bottom 145
+        const top = lm[159]; 
+        const bottom = lm[145];
+        
+        // Calculate raw distance
+        const eyeDist = Math.hypot(top.x - bottom.x, top.y - bottom.y);
+        currentEyeDist = eyeDist.toFixed(3); // Store for debug display
+        
+        // ADJUSTED THRESHOLD: Increased to 0.025 (was 0.012)
+        eyeClosed = eyeDist < 0.025;
+    }
 });
-camera.start();
+
+// Camera Setup
+let camera;
+function startCamera() {
+    log("Starting Camera...");
+    camera = new Camera(videoElement, {
+        onFrame: async () => {
+            // Optimization: Only run face mesh during Boot/Calibrate
+            if (gameState === "BOOT" || gameState === "CALIBRATE") {
+                await faceMesh.send({image: videoElement});
+            }
+            // Always run hands
+            await hands.send({image: videoElement});
+        },
+        width: 640, height: 480 
+    });
+    camera.start()
+        .then(() => log("Camera Started"))
+        .catch(e => log("Camera Error: " + e));
+}
 
 /** * --- MAIN GAME ENGINE ---
  */
+document.getElementById('start-btn').addEventListener('click', () => {
+    startScreen.style.display = 'none';
+    initAudio();
+    audioCtx.resume();
+    startCamera();
+    gameState = "BOOT";
+});
+
 function drawLoop() {
     ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -122,13 +190,24 @@ function drawLoop() {
     if (gameState === "BOOT") {
         bootTimer++;
         ctx.fillStyle = "#0f0";
-        ctx.font = "14px Courier";
-        ctx.fillText("> INITIALIZING BIOMETRIC PROTOCOL...", 30, 100);
-        if(bootTimer > 60) ctx.fillText("> HAND TRACKERS: ONLINE", 30, 130);
-        if(bootTimer > 120) ctx.fillText("> OCULAR SCANNER: READY", 30, 160);
-        if(bootTimer > 180) {
+        ctx.font = "16px Courier New";
+        ctx.fillText("> SYSTEM INITIALIZING...", 30, 100);
+        
+        if(bootTimer > 30) ctx.fillText("> HAND TRACKERS: CONNECTED", 30, 130);
+        if(bootTimer > 60) ctx.fillText("> OCULAR SCANNER: READY", 30, 160);
+        
+        if(bootTimer > 90) {
             ctx.fillStyle = "#ff0";
-            ctx.fillText("BLINK TO START CALIBRATION", canvasElement.width/2 - 100, canvasElement.height/2);
+            ctx.textAlign = "center";
+            ctx.fillText("BLINK EYES TO START", canvasElement.width/2, canvasElement.height/2);
+            
+            // Debug Value for User
+            ctx.fillStyle = "#aaa";
+            ctx.font = "12px Courier New";
+            ctx.fillText(`EYE GAP: ${currentEyeDist} (Needs < 0.025)`, canvasElement.width/2, canvasElement.height/2 + 30);
+            
+            ctx.textAlign = "left";
+
             if(eyeClosed) {
                 playSfx(400, 800, 0.2);
                 gameState = "CALIBRATE";
@@ -141,12 +220,13 @@ function drawLoop() {
         ctx.strokeRect(50, canvasElement.height/2, canvasElement.width-100, 20);
         ctx.fillStyle = "#0ff";
         ctx.fillRect(52, canvasElement.height/2 + 2, romProgress * (canvasElement.width-104), 16);
-        ctx.fillText("STRETCH FINGERS & PINCH TO CALIBRATE ROM", 30, canvasElement.height/2 - 30);
+        ctx.fillText("PINCH FINGERS TO FILL BAR", 50, canvasElement.height/2 - 20);
 
-        if (pinching) romProgress += 0.01;
+        if (pinching) romProgress += 0.02; // Faster calibration
         if (romProgress >= 1) {
             playSfx(800, 1200, 0.3);
             gameState = "PLAYING";
+            score = 0; lives = 3; enemies = []; bullets = [];
         }
     }
 
@@ -214,19 +294,20 @@ function drawLoop() {
     else if (gameState === "GAMEOVER") {
         ctx.fillStyle = "rgba(0,0,0,0.8)";
         ctx.fillRect(0,0, canvasElement.width, canvasElement.height);
+        
+        ctx.textAlign = "center";
         ctx.fillStyle = "#0f0";
-        ctx.fillText("--- DIAGNOSTIC COMPLETE ---", 50, 100);
+        ctx.fillText("--- DIAGNOSTIC COMPLETE ---", canvasElement.width/2, 100);
 
         const avgReaction = reactionTimes.length ? Math.round(reactionTimes.reduce((a,b)=>a+b)/reactionTimes.length) : 0;
-        const stability = tremorData.length ? (10 - (tremorData.reduce((a,b)=>a+b)/tremorData.length)).toFixed(1) : 0;
-
+        
         ctx.fillStyle = "#fff";
-        ctx.fillText(`NEURO-STABILITY: ${stability}/10`, 50, 150);
-        ctx.fillText(`AVG REACTION: ${avgReaction}ms`, 50, 180);
-        ctx.fillText(`FINAL SCORE: ${score}`, 50, 210);
+        ctx.fillText(`AVG REACTION: ${avgReaction}ms`, canvasElement.width/2, 180);
+        ctx.fillText(`FINAL SCORE: ${score}`, canvasElement.width/2, 210);
 
         ctx.fillStyle = "#ff0";
-        ctx.fillText("TAP TO RE-BOOT", 50, 300);
+        ctx.fillText("TAP SCREEN TO RE-BOOT", canvasElement.width/2, 300);
+        ctx.textAlign = "left";
     }
 
     requestAnimationFrame(drawLoop);
@@ -234,7 +315,6 @@ function drawLoop() {
 
 window.addEventListener('touchstart', () => {
     if(gameState === "GAMEOVER") location.reload();
-    audioCtx.resume();
 });
 
 drawLoop();
