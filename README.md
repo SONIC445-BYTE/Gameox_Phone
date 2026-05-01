@@ -1,10 +1,26 @@
 # 🟢 NEURO-MOTOR HUB [Project GAMEOX]
 
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Build](https://img.shields.io/badge/Build-Stable-brightgreen.svg)
+![Neuro-Link](https://img.shields.io/badge/Neuro--Link-Active-success.svg)
+
 > **STATUS:** SYSTEM ONLINE
 > **INTERFACE:** BIOMETRIC NEURO-LINK
 > **VERSION:** 2.4 (PATCHED)
 
 Project GAMEOX is a high-fidelity, AI-powered neuro-diagnostic interface designed for the assessment of motor-skill precision and ocular-response latency. Utilizing advanced computer vision via MediaPipe, it bridges the gap between physical movement and digital execution within a cyberpunk-themed diagnostic environment.
+
+---
+
+## 📑 TABLE OF CONTENTS
+- [System Overview](#-system-overview)
+- [Hardware Requirements](#-hardware-requirements)
+- [Initialization Protocol](#-initialization-protocol)
+- [Operational Manual](#-operational-manual)
+- [Diagnostic Metrics](#-diagnostic-metrics)
+- [Technical Core](#-technical-core)
+- [Contribution](#-contribution)
+- [License](#-license)
 
 ---
 
@@ -66,6 +82,23 @@ Project GAMEOX is built on a foundation of cutting-edge web technologies:
 - **[MediaPipe Face Mesh](https://google.github.io/mediapipe/solutions/face_mesh.html):** High-fidelity facial landmark detection for ocular scanning.
 - **HTML5 Canvas:** Low-latency rendering of the diagnostic interface.
 - **Web Audio API:** Dynamic frequency-modulated sound synthesis.
+
+---
+
+## 🤝 CONTRIBUTION
+
+Interested in enhancing the Neuro-Link?
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/synaptic-boost`.
+3. Commit your changes: `git commit -m 'Add synaptic acceleration'`.
+4. Push to the branch: `git push origin feature/synaptic-boost`.
+5. Open a Pull Request.
+
+---
+
+## ⚖️ LICENSE
+
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
